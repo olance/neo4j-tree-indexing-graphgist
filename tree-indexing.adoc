@@ -1,0 +1,18 @@
+= In-graph tree indexing
+
+Storing tree structures in a graph database makes a lot of sense. However, some trees are easier to play with than others.
+Some constraints will make things much more complicated. Ordered children for instance, or time-dependent hierarchies (a tree 
+that changes in time), or ordered time-dependent hierarchies...
+
+In this GraphGist, I will present an indexing structure that makes it easier to deal with that kind of trees and that allows:
+
+* Returning the full hierarchy with a single query, in a depth-first traversal fashion that allows building back the 
+hierarchy in memory using your client language.
+* Similarly, extracting the full subtree from a given node, with a single query.
+* List direct children of any given node within the tree.
+
+All of this while maintaining children order in the returned data!
+
+_NB:_ As you will see this technique trades storage space for query efficiency, so it may not be appropriate for large
+amounts of data.
+
