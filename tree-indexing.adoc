@@ -100,7 +100,7 @@ The cause of this problem seems to be that our tree is represented by multiple p
 No matter how hard I tried, I never found a way to get a useful result out of this graph and my Cypher queries were beginning to be way too complicated. Conclusion: the graph structure has too change!
 
 
-== Optimizing for our intended queries
+== Optimizing our model for our queries
 
 === Some theory
 Instead of modeling our data the way we're used to see it, let's look at it the other way round and model it according to the way we want to query it/get it back. +
@@ -142,6 +142,7 @@ What's great about this list, is that it is pretty easy to use to build back the
 The previous result shows us there is a way to represent our tree with a *single* path. The only thing we have to do is remove all our `:HAS` relationships and instead create a relationship between each consecutive node in the order defined above. +
 The next two queries will do just that. Of course in a real-world application, you would directly create the graph from your tree by traversing it with the depth-first algorithm and creating each node/relationship on the fly.
 
+// hide
 [source,cypher]
 ----
 // Delete :HAS relationships
@@ -152,6 +153,8 @@ DELETE r
 [source,cypher]
 ----
 // Create pre-ordered depth-first path
+
+// Match all nodes individually so we can name them
 MATCH (root:CATEGORIES)
 
 MATCH (road:CATEGORY {name: '1.1 Road Racing'})
@@ -172,6 +175,7 @@ MATCH (motogp:CLASS {name: '1.1.1.3 MotoGP'})
 
 WITH *
 
+// Create the path
 CREATE (root)-[:NEXT]->(road)-[:NEXT]->(gp)-[:NEXT]->(moto3)
 CREATE (moto3)-[:NEXT]->(moto2)-[:NEXT]->(motogp)-[:NEXT]->(sbk)
 CREATE (sbk)-[:NEXT]->(ssp)-[:NEXT]->(endurance)-[:NEXT]->(sidecar)
@@ -221,6 +225,7 @@ This is however not possible as it is: we have no way to know when to stop!
 To fix this, we can add a relationship between a non-leaf node and the last node in its subtree. Thus, from any given node, we could match its last subtree node and walk the DFS path no further than this marker node. +
 Let's add `:LAST` relationships between the appropriate nodes of our tree:
 
+// hide
 [source,cypher]
 ----
 // Adding :LAST relationships
@@ -240,12 +245,11 @@ WITH *
 CREATE (road)-[:LAST]->(tradi)
 CREATE (gp)-[:LAST]->(motogp)
 CREATE (cross)-[:LAST]->(spmoto)
-----
 
-// hide
-[source,cypher]
-----
-MATCH (n) RETURN n
+WITH spmoto
+
+MATCH p = (spmoto)<-[:NEXT*]-()
+RETURN p
 ----
 
 // graph
@@ -273,7 +277,53 @@ RETURN DISTINCT nodes
 The query first matches the subroot we're interested in and the last node of its subtree; then, the path from the subroot to this last node is fetched in `p` and we return the unwinded collection of nodes in this path. Both relationships matchers use the `*0..` variable-length qualifier to make sure we return at least the selected subroot when it is a leaf (and hence has no subtree). +
 Because of the "0" in this qualifier, the subroot is matched twice, which is why I used the `DISTINCT` clause to avoid duplication in our result set.
 
+The last piece of data we'd like to query is the ordered list of direct children of any given node in the tree. Once again, we'll have to complement our model to make this possible: all nodes in our DFS path are potentially interspersed with the children of their siblings.
 
+My proposition to solve this last problem is to add relationships between sibling nodes to create an ordered linked list from the first to the last sibling of each level.
+
+// hide
+[source,cypher]
+----
+// Add :NEXT_SIBLING rels
+MATCH (road {name: '1.1 Road Racing'})
+MATCH (cross {name: '1.2 Motocross'})
+
+MATCH (gp {name: '1.1.1 Grand Prix'})
+MATCH (sbk {name: '1.1.2 Superbike'})
+MATCH (ssp {name: '1.1.3 Supersport'})
+MATCH (endurance {name: '1.1.4 Endurance'})
+MATCH (sidecar {name: '1.1.5 Sidecar'})
+MATCH (tradi {name: '1.1.6 Traditional'})
+
+MATCH (spcross {name: '1.2.1 Supercross'})
+MATCH (spmoto {name: '1.2.2 Supermoto'})
+
+MATCH (moto3 {name: '1.1.1.1 Moto3'})
+MATCH (moto2 {name: '1.1.1.2 Moto2'})
+MATCH (motogp {name: '1.1.1.3 MotoGP'})
+
+WITH *
+
+CREATE (road)-[:NEXT_SIBLING]->(cross)
+
+CREATE (gp)-[:NEXT_SIBLING]->(sbk)-[:NEXT_SIBLING]->(ssp)-[:NEXT_SIBLING]->(endurance)
+CREATE (endurance)-[:NEXT_SIBLING]->(sidecar)-[:NEXT_SIBLING]->(tradi)
+
+CREATE (spcross)-[:NEXT_SIBLING]->(spmoto)
+
+CREATE (moto3)-[:NEXT_SIBLING]->(moto2)-[:NEXT_SIBLING]->(motogp)
+
+WITH spmoto
+
+MATCH p = (spmoto)<-[:NEXT*]-()
+RETURN p
+----
+
+// graph
+
+Once again, here's a screenshot showing the nodes properly laid out:
+
+image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path-complete.png[]
 
 === Adding depths
 
