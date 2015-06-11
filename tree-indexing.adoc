@@ -325,14 +325,15 @@ Once again, here's a screenshot showing the nodes properly laid out:
 
 image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path-complete.png[]
 
-With the `:NEXT_SIBLING` relationships present, getting the direct children of a node remains somewhat tricky. One would be tempted to get the `:NEXT` node of the parent node and then all the `:NEXT_SIBLING` nodes. This will work at the condition that you are not trying to get the children of a leaf. Using this method to get the (non-existing) children of the node "1.1.1.3 MotoGP" would select "1.1.2 Superbike" as the `:NEXT` node and then all its remaining siblings, effectively returning nodes from a higher level than the one we were interested in. +
-We have to be more clever than that. Fortunately this is still accessible to the bare mortals we are: we just have to make sure there's no inbound `:NEXT_SIBLING` on the `:NEXT` node we match from our parent node. If there's one, it means the matched node is a sibling of the starting node or a sibling of one of its ancestors. Another way to put this is to say that in a DFS path, a node will never point back at one of its ancestors, so it necessarily points to:
+With the `:NEXT_SIBLING` relationships present, getting the direct children of a node remains somewhat tricky. One would be tempted to get the `:NEXT` node of the parent node and then all the `:NEXT_SIBLING` nodes. This will work as long as you are not trying to get the children of a leaf. +
+Using this method to get the (non-existing) children of the node "1.1.1.3 MotoGP" would select "1.1.2 Superbike" as the `:NEXT` node and then all its remaining siblings, effectively returning nodes from a higher level than the one we were interested in. +
+We have to be more clever than that. Fortunately this is still accessible to the bare mortals we are: we just have to make sure there's no inbound `:NEXT_SIBLING` relationship on the `:NEXT` node we match from our parent node. If there's one, it means the matched node is a sibling of the starting node or a sibling of one of its ancestors. Another way to put this is to say that in a DFS path, a node will never point back at one of its ancestors, so it necessarily points to:
 
-* its first child (No inbound `:NEXT_SIBLING` relationship then)
-* a sibling (to which it'll also point via a `:NEXT_SIBLING` relationship)
-* a sibling of an ancestor node (which too will have a `:NEXT_SIBLING` relationship pointing to it from the said ancestor)
+* its first child. No inbound `:NEXT_SIBLING` relationship then (eg. `('1.1')-[:NEXT]->('1.1.1')`).
+* or a sibling, to which it'll also point via a `:NEXT_SIBLING` relationship (eg. `('1.1.1.1')-[:NEXT]->('1.1.1.2')`).
+* or a sibling of an ancestor node, which will then have an inbound `:NEXT_SIBLING` relationship from the said ancestor (eg. `('1.1.1.3')-[:NEXT]->('1.1.2')`).
 
-Now that we're aware of this special case, let's see how we can query children of a node:
+Now that we're aware of this special case, let's see how we can query the children of a node:
 
 [source,cypher]
 ----
@@ -346,7 +347,7 @@ WHERE NOT ()-[:NEXT_SIBLING]->(firstChild)
 
 // Match and return all siblings (including first child)
 MATCH (firstChild)-[:NEXT_SIBLING*0..]->(siblings)
-RETURN siblings
+RETURN siblings AS children
 ----
 
 The `WHERE NOT ()-[:NEXT_SIBLING]->(firstChild)` clause is our clever part: it makes sure the `firstChild` node we have matched has no inbound `:NEXT_SIBLING` relationship. If it doesn't, the next `MATCH` will go through the siblings path and return everything in order:
@@ -361,7 +362,7 @@ Running the same query with a leaf, we can check that no node is returned:
 MATCH ({name: '1.1.1.3 MotoGP'})-[:NEXT]->(firstChild)
 WHERE NOT ()-[:NEXT_SIBLING]->(firstChild)
 MATCH (firstChild)-[:NEXT_SIBLING*0..]->(siblings)
-RETURN siblings
+RETURN siblings AS children
 ----
 
 // table
