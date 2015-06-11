@@ -325,6 +325,47 @@ Once again, here's a screenshot showing the nodes properly laid out:
 
 image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path-complete.png[]
 
+With the `:NEXT_SIBLING` relationships present, getting the direct children of a node remains somewhat tricky. One would be tempted to get the `:NEXT` node of the parent node and then all the `:NEXT_SIBLING` nodes. This will work at the condition that you are not trying to get the children of a leaf. Using this method to get the (non-existing) children of the node "1.1.1.3 MotoGP" would select "1.1.2 Superbike" as the `:NEXT` node and then all its remaining siblings, effectively returning nodes from a higher level than the one we were interested in. +
+We have to be more clever than that. Fortunately this is still accessible to the bare mortals we are: we just have to make sure there's no inbound `:NEXT_SIBLING` on the `:NEXT` node we match from our parent node. If there's one, it means the matched node is a sibling of the starting node or a sibling of one of its ancestors. Another way to put this is to say that in a DFS path, a node will never point back at one of its ancestors, so it necessarily points to:
+
+* its first child (No inbound `:NEXT_SIBLING` relationship then)
+* a sibling (to which it'll also point via a `:NEXT_SIBLING` relationship)
+* a sibling of an ancestor node (which too will have a `:NEXT_SIBLING` relationship pointing to it from the said ancestor)
+
+Now that we're aware of this special case, let's see how we can query children of a node:
+
+[source,cypher]
+----
+// Get direct children of a node
+
+// Match the node we're interested in and its (possible) first child
+MATCH ({name: '1.1.1 Grand Prix'})-[:NEXT]->(firstChild)
+
+// Make sure this is really a child
+WHERE NOT ()-[:NEXT_SIBLING]->(firstChild)
+
+// Match and return all siblings (including first child)
+MATCH (firstChild)-[:NEXT_SIBLING*0..]->(siblings)
+RETURN siblings
+----
+
+The `WHERE NOT ()-[:NEXT_SIBLING]->(firstChild)` clause is our clever part: it makes sure the `firstChild` node we have matched has no inbound `:NEXT_SIBLING` relationship. If it doesn't, the next `MATCH` will go through the siblings path and return everything in order:
+
+// table
+
+Running the same query with a leaf, we can check that no node is returned:
+
+// hide
+[source,cypher]
+----
+MATCH ({name: '1.1.1.3 MotoGP'})-[:NEXT]->(firstChild)
+WHERE NOT ()-[:NEXT_SIBLING]->(firstChild)
+MATCH (firstChild)-[:NEXT_SIBLING*0..]->(siblings)
+RETURN siblings
+----
+
+// table
+
 === Adding depths
 
 Our example uses a different node label for each tree level. When dealing with trees with unknown depth or with trees that use a single label to mark its different levels (there's not much sense in creating `CATEGORY`, `SUBCATEGORY`, `SUBSUBCATEGORY` (...) labels!), our previous request is not sufficient: in order to be able to build back the tree from the result set, we need to know when we stepped from one leaf to the sibling of its parent (ie. iterating from "1.1.6 Traditional" to "1.2 Motocross" in our example). +
