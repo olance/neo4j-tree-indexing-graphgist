@@ -104,7 +104,7 @@ No matter how hard I tried, I never found a way to get a useful result out of th
 
 === Some theory
 Instead of modeling our data the way we're used to see it, let's look at it the other way round and model it according to the way we want to query it/get it back. +
-One simple way to flatten a tree so that it can be built back later is to list its nodes with a pre-order depth-first traversal algorithm. Here's a quick overview of this algorithm for those who are not familiar with it:
+One simple way to flatten a tree so that it can be built back later is to list its nodes with a pre-order depth-first search algorithm (DFS). Here's a quick overview of this algorithm for those who are not familiar with it:
 
 1. Select the root node
 2. Select the first child node and repeat until there's no child node to go to
@@ -187,3 +187,95 @@ The graph above doesn't look like a tree anymore... but our tree's still here, i
 
 image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path.png[]
 
+Getting the whole ordered tree is now as easy as:
+
+[source,cypher]
+----
+// Get the whole ordered tree
+MATCH (root:CATEGORIES)-[:NEXT*0..]->(item)
+RETURN item
+----
+
+// graph
+
+// table
+
+This query is very simple: we start from the root and return each item that is located at 0 to _n_ `:NEXT` relationships from it. The item at 0 hops from the root is the root itself, so we do get the complete path in the correct order.
+
+To make this query a bit safer, we can order the paths Neo4j will find before returning the items they contain. Although it seems to always be the case, we're indeed not sure that Neo4j will expand our `-[:NEXT*0..]->` relationship by extending the path one node by one node. It may well start from the longest path and decrease to the shortest, so in order to prevent from any unexpected result, here's what we can do:
+
+[source,cypher]
+----
+// Get the whole ordered tree
+MATCH p = (root:CATEGORIES)-[:NEXT*0..]->(item)
+WITH p, item
+ORDER BY length(p)
+RETURN item
+----
+
+The addition does not complicate the query too much: we just assign each found path to the `p` variable and sort the items according to the lengths of the paths that led to them.
+
+Now how would we extract a subtree from this tree? We could just start from the root node of the subtree we're interested in, and traverse our path down to the last node that is part of this subtree. +
+This is however not possible as it is: we have no way to know when to stop!
+
+To fix this, we can add a relationship between a non-leaf node and the last node in its subtree. Thus, from any given node, we could match its last subtree node and walk the DFS path no further than this marker node. +
+Let's add `:LAST` relationships between the appropriate nodes of our tree:
+
+[source,cypher]
+----
+// Adding :LAST relationships
+
+// Match "sub-root" nodes
+MATCH (road {name: '1.1 Road Racing'})
+MATCH (gp {name: '1.1.1 Grand Prix'})
+MATCH (cross {name: '1.2 Motocross'})
+
+// Match the last sub-tree nodes of these sub-roots
+MATCH (tradi {name: '1.1.6 Traditional'})
+MATCH (motogp {name: '1.1.1.3 MotoGP'})
+MATCH (spmoto {name: '1.2.2 Supermoto'})
+
+WITH *
+
+CREATE (road)-[:LAST]->(tradi)
+CREATE (gp)-[:LAST]->(motogp)
+CREATE (cross)-[:LAST]->(spmoto)
+----
+
+// hide
+[source,cypher]
+----
+MATCH (n) RETURN n
+----
+
+// graph
+
+Here's a view of the above graph with nodes organized more neatly:
+
+image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path-with-last.png[]
+
+Note that I haven't added a `:LAST` relationship on the tree's root, as there is no sense extracting the tree's "subtree" from the tree's own root. +
+Being able to identify the last node of each subtree, we can now extract them quite easily:
+
+[source,cypher]
+----
+// Get a complete subtree
+MATCH (subroot {name: '1.1 Road Racing'})-[:LAST*0..]->(lastNode)
+MATCH p = (subroot)-[:NEXT*0..]->(lastNode)
+
+WITH nodes(p) AS n UNWIND n AS nodes
+
+RETURN DISTINCT nodes
+----
+
+// table
+
+The query first matches the subroot we're interested in and the last node of its subtree; then, the path from the subroot to this last node is fetched in `p` and we return the unwinded collection of nodes in this path. Both relationships matchers use the `*0..` variable-length qualifier to make sure we return at least the selected subroot when it is a leaf (and hence has no subtree). +
+Because of the "0" in this qualifier, the subroot is matched twice, which is why I used the `DISTINCT` clause to avoid duplication in our result set.
+
+
+
+=== Adding depths
+
+Our example uses a different node label for each tree level. When dealing with trees with unknown depth or with trees that use a single label to mark its different levels (there's not much sense in creating `CATEGORY`, `SUBCATEGORY`, `SUBSUBCATEGORY` (...) labels!), our previous request is not sufficient: in order to be able to build back the tree from the result set, we need to know when we stepped from one leaf to the sibling of its parent (ie. iterating from "1.1.6 Traditional" to "1.2 Motocross" in our example). +
+A solution to this is to add depth information for each returned item. 
