@@ -48,7 +48,9 @@ _Note: Nodes have been created in random order to ensure subsequent queries do n
 
 // graph
 
-As you probably can see, order is important in this tree. If we wanted to display the complete hierarchy of motorcycle racing categories as a plan for an article (just as it's done in http://en.wikipedia.org/wiki/Motorcycle_racing#Motorcycle_Grand_Prix[this wikipedia article] the data's been taken from), we'd probably love to query the whole tree and have nothing more to do than display it, confident that items will be in correct order.
+As you probably can see, order is important in this tree. If we wanted to display the complete hierarchy of motorcycle racing categories as a plan for an article (just as it's done in http://en.wikipedia.org/wiki/Motorcycle_racing#toctitle[this wikipedia article] the data's been taken from), we'd probably love to query the whole tree and have nothing more to do than display it, confident that items will be in correct order.
+
+== Intuitive approach
 
 The problem with such a graph is that all the order information is lost: the `:HAS` relationships do not allow us to retrieve the children of a node in order. +
 What about storing the position  of each child in its `:HAS` relationship? Something like this:
@@ -91,4 +93,97 @@ RETURN paths, positions
 
 // table
 
-The problem is that we do get the complete tree as a result of that kind of query, but it's going to be very difficult to deal with the relationships collections represented by `r` and the paths represented by `p` to return a list of nodes that can be easily used to build back the tree later on (I'm assuming we want to do as less operations as possible on the client side).
+
+The problem is that we do get the complete tree as a result of that kind of query, but it's going to be very difficult to deal with the relationships collections represented by `_rels` and the paths represented by `p` in the query above to return a list of nodes that can be easily used to build back the tree later on (I'm assuming we want to do as few operations as possible on the client side). +
+The cause of this problem seems to be that our tree is represented by multiple paths: one for each leaf, with paths to nodes being sub-paths of those. This leaves us with handling collections of paths and relationships which cannot be easily ordered back to a list of node, as the order information lies in the relationships. "Not very graphy", as some would say!
+
+No matter how hard I tried, I never found a way to get a useful result out of this graph and my Cypher queries were beginning to be way too complicated. Conclusion: the graph structure has too change!
+
+
+== Optimizing for our intended queries
+
+=== Some theory
+Instead of modeling our data the way we're used to see it, let's look at it the other way round and model it according to the way we want to query it/get it back. +
+One simple way to flatten a tree so that it can be built back later is to list its nodes with a pre-order depth-first traversal algorithm. Here's a quick overview of this algorithm for those who are not familiar with it:
+
+1. Select the root node
+2. Select the first child node and repeat until there's no child node to go to
+3. If the current node has unselected siblings: Select the next sibling and go to 2.
+4. If the current node has no unselected siblings: Go back to the node's parent and go to 3.
+5. Output each node when it's first selected
+
+An animation will probably help you grasp the idea:
+
+image::http://upload.wikimedia.org/wikipedia/commons/7/7f/Depth-First-Search.gif[]
+(By Mre (Own work) http://creativecommons.org/licenses/by-sa/3.0[CC BY-SA 3.0], via Wikimedia Commons)
+
+If we apply this algorithm to our own tree, we'd get each node in this order:
+
+----
+1. Motorcycle Racing Categories (:CATEGORIES)
+1.1 Road Racing (:CATEGORY)
+1.1.1 Grand Prix (:SUBCATEGORY)
+1.1.1.1 Moto3 (:CLASS)
+1.1.1.2 Moto2 (:CLASS)
+1.1.1.3 MotoGP (:CLASS)
+1.1.2 Superbike (:SUBCATEGORY)
+1.1.3 Supersport (:SUBCATEGORY)
+1.1.4 Endurance (:SUBCATEGORY)
+1.1.5 Sidecar (:SUBCATEGORY)
+1.1.6 Traditional (:SUBCATEGORY)
+1.2 Motocross (:CATEGORY)
+1.2.1 Supercross (:SUBCATEGORY)
+1.2.2 Supermoto (:SUBCATEGORY)
+----
+
+What's great about this list, is that it is pretty easy to use to build back the tree in memory with a very simple _O(n)_ algorithm using a stack.
+
+=== Applying this algorithm to our graph
+The previous result shows us there is a way to represent our tree with a *single* path. The only thing we have to do is remove all our `:HAS` relationships and instead create a relationship between each consecutive node in the order defined above. +
+The next two queries will do just that. Of course in a real-world application, you would directly create the graph from your tree by traversing it with the depth-first algorithm and creating each node/relationship on the fly.
+
+[source,cypher]
+----
+// Delete :HAS relationships
+MATCH ()-[r:HAS]-()
+DELETE r
+----
+
+[source,cypher]
+----
+// Create pre-ordered depth-first path
+MATCH (root:CATEGORIES)
+
+MATCH (road:CATEGORY {name: '1.1 Road Racing'})
+MATCH (cross:CATEGORY {name: '1.2 Motocross'})
+
+MATCH (gp:SUBCATEGORY {name: '1.1.1 Grand Prix'})
+MATCH (sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
+MATCH (ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
+MATCH (endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
+MATCH (sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
+MATCH (tradi:SUBCATEGORY {name: '1.1.6 Traditional'})
+MATCH (spcross:SUBCATEGORY {name: '1.2.1 Supercross'})
+MATCH (spmoto:SUBCATEGORY {name: '1.2.2 Supermoto'})
+
+MATCH (moto3:CLASS {name: '1.1.1.1 Moto3'})
+MATCH (moto2:CLASS {name: '1.1.1.2 Moto2'})
+MATCH (motogp:CLASS {name: '1.1.1.3 MotoGP'})
+
+WITH *
+
+CREATE (root)-[:NEXT]->(road)-[:NEXT]->(gp)-[:NEXT]->(moto3)
+CREATE (moto3)-[:NEXT]->(moto2)-[:NEXT]->(motogp)-[:NEXT]->(sbk)
+CREATE (sbk)-[:NEXT]->(ssp)-[:NEXT]->(endurance)-[:NEXT]->(sidecar)
+CREATE (sidecar)-[:NEXT]->(tradi)-[:NEXT]->(cross)
+CREATE (cross)-[:NEXT]->(spcross)-[:NEXT]->(spmoto)
+
+RETURN *
+----
+
+// graph
+
+The graph above doesn't look like a tree anymore... but our tree's still here, it's just organized according to the pre-order DFS algorithm:
+
+image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path.png[]
+
