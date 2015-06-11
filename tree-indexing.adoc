@@ -60,10 +60,10 @@ MATCH ()-[r:HAS]->(child)
 // 2. Split first item by dots and take last: "1.1.1.3" => "3"
 // 3. Convert to Int and store in relation's `pos` property
 SET r.pos = toInt(last(split(head(split(child.name, ' ')), '.')))
-RETURN *
+RETURN r
 ------
 
-// graph
+// table
 
 _(Note: this query works here because we had the position in each node's label, you would of course need to come up with your own algorithm to build your tree with the correct `pos` property on each relationship)_
 
