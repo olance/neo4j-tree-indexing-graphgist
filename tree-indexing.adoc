@@ -11,8 +11,37 @@ hierarchy in memory using your client language.
 * Similarly, extracting the full subtree from a given node, with a single query.
 * List direct children of any given node within the tree.
 
-All of this while maintaining children order in the returned data!
+All of this for arbitrary depths of trees and with preservation of children order at each level in the returned data!
 
-_NB:_ As you will see this technique trades storage space for query efficiency, so it may not be appropriate for large
-amounts of data.
+_NB: As you will see this technique trades storage space for query efficiency, so it may not be appropriate for large
+amounts of data._
 
+== Let's start with a tree
+
+Here's the tree we'll be working with:
+
+//hide
+//setup
+[source,cypher]
+----
+CREATE (root:CATEGORIES {name: 'Motorcycle Racing Categories'})
+
+CREATE (root)-[:HAS]->(road:CATEGORY {name: 'Road Racing'})
+CREATE (road)-[:HAS]->(gp:SUBCATEGORY {name: 'Grand Prix'})
+CREATE (gp)-[:HAS]->(moto3:CLASS {name: 'Moto3'})
+CREATE (gp)-[:HAS]->(moto2:CLASS {name: 'Moto2'})
+CREATE (gp)-[:HAS]->(motogp:CLASS {name: 'MotoGP'})
+
+CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: 'Superbike'})
+CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: 'Supersport'})
+CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: 'Endurance'})
+CREATE (road)-[:HAS]->(tradi:SUBCATEGORY {name: 'Traditional road racing'})
+
+CREATE (root)-[:HAS]->(cross:CATEGORY {name: 'Motocross'})
+CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: 'Supercross'})
+CREATE (cross)-[:HAS]->(supermoto:SUBCATEGORY {name: 'Supermoto'})
+
+RETURN *
+----
+
+// graph
