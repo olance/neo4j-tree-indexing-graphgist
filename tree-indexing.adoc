@@ -4,7 +4,7 @@ Storing tree structures in a graph database makes a lot of sense. However, some 
 Some constraints will make things much more complicated. Ordered children for instance, or time-dependent hierarchies (a tree 
 that changes in time), or ordered time-dependent hierarchies...
 
-In this GraphGist, I will present an indexing structure that makes it easier to deal with that kind of trees and that allows:
+In this GraphGist, I will present tree indexing structures that make it easier to deal with that kind of trees and that would ultimately allow:
 
 * Returning the full hierarchy with a single query, in a depth-first traversal fashion that allows building back the 
 hierarchy in memory using your client language.
@@ -13,8 +13,7 @@ hierarchy in memory using your client language.
 
 All of this for arbitrary depths of trees and with preservation of children order at each level in the returned data!
 
-_NB: As you will see this technique trades storage space for query efficiency, so it may not be appropriate for large
-amounts of data._
+Please note that this document is as much a presentation as a personal research on in-graph tree indexing. It will progressively take you through several structures that all have their advantages and inconvenients. I think they could all be used successfully to work with trees, depending on your needs and constraints; I'll try to highlight the pros and cons for each of them.
 
 == Let's start with a tree
 
@@ -28,26 +27,163 @@ CREATE (root:CATEGORIES {name: '1. Motorcycle Racing Categories'})
 
 CREATE (root)-[:HAS]->(road:CATEGORY {name: '1.1 Road Racing'})
 CREATE (road)-[:HAS]->(gp:SUBCATEGORY {name: '1.1.1 Grand Prix'})
-CREATE (gp)-[:HAS]->(moto3:CLASS {name: '1.1.1.1 Moto3'})
 CREATE (gp)-[:HAS]->(moto2:CLASS {name: '1.1.1.2 Moto2'})
+CREATE (gp)-[:HAS]->(moto3:CLASS {name: '1.1.1.1 Moto3'})
 CREATE (gp)-[:HAS]->(motogp:CLASS {name: '1.1.1.3 MotoGP'})
 
-CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
-CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
-CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
-CREATE (road)-[:HAS]->(sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
 CREATE (road)-[:HAS]->(tradi:SUBCATEGORY {name: '1.1.6 Traditional'})
+CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
+CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
+CREATE (road)-[:HAS]->(sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
+CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
 
 CREATE (root)-[:HAS]->(cross:CATEGORY {name: '1.2 Motocross'})
-CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: '1.2.1 Supercross'})
 CREATE (cross)-[:HAS]->(supermoto:SUBCATEGORY {name: '1.2.2 Supermoto'})
+CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: '1.2.1 Supercross'})
+
+RETURN *
+----
+
+_Note: Nodes have been created in random order to ensure subsequent queries do not return ordered nodes "by accident"_
+
+// graph
+
+As you probably can see, order is important in this tree. If we wanted to display the complete hierarchy of motorcycle racing categories as a plan for an article (just as it's done in http://en.wikipedia.org/wiki/Motorcycle_racing#toctitle[this wikipedia article] the data's been taken from), we'd probably love to query the whole tree and have nothing more to do than display it, confident that items will be in correct order.
+
+== Intuitive approach
+
+The problem with such a graph is that all the order information is lost: the `:HAS` relationships do not allow us to retrieve the children of a node in order. +
+What about storing the position  of each child in its `:HAS` relationship? Something like this:
+
+[source,cypher]
+----
+// Match all :HAS relationships and the child they point to
+MATCH ()-[r:HAS]->(child)
+
+// 1. Split child name by spaces: "1.1.1.3 MotoGP" => ["1.1.1.3", "MotoGP"]
+// 2. Split first item by dots and take last: "1.1.1.3" => "3"
+// 3. Convert to Int and store in relationship's `pos` property
+SET r.pos = toInt(last(split(head(split(child.name, ' ')), '.')))
+RETURN r
+----
+
+// table
+
+_Note: this query works here because we had the position in each node's label, you would of course need to come up with your own algorithm to build your tree with the correct `pos` property on each relationship_
+
+Now that we have this position property on each relationship, we can effectively get the ordered children of a given node:
+
+[source,cypher]
+----
+MATCH (root {name: '1.1.1 Grand Prix'})-[r:HAS]->(child)
+RETURN child
+ORDER BY r.pos
+----
+
+// table
+
+What if we want to get the whole tree? We can use a variable-length relationships syntax to do that:
+
+[source,cypher]
+----
+MATCH p = (root:CATEGORIES)-[_rels:HAS*0..]->(child)
+WITH [r in _rels|r.pos] AS positions, [n in nodes(p)|n.name] AS paths
+RETURN paths, positions
+----
+
+// table
+
+
+The problem is that we do get the complete tree as a result of that kind of query, but it's going to be very difficult to deal with the relationships collections represented by `_rels` and the paths represented by `p` in the query above to return a list of nodes that can be easily used to build back the tree later on (I'm assuming we want to do as few operations as possible on the client side). +
+The cause of this problem seems to be that our tree is represented by multiple paths: one for each leaf, with paths to nodes being sub-paths of those. This leaves us with handling collections of paths and relationships which cannot be easily ordered back to a list of node, as the order information lies in the relationships. "Not very graphy", as some would say!
+
+No matter how hard I tried, I never found a way to get a useful result out of this graph and my Cypher queries were beginning to be way too complicated. Conclusion: the graph structure has too change!
+
+
+== Optimizing for our intended queries
+
+=== Some theory
+Instead of modeling our data the way we're used to see it, let's look at it the other way round and model it according to the way we want to query it/get it back. +
+One simple way to flatten a tree so that it can be built back later is to list its nodes with a pre-order depth-first traversal algorithm. Here's a quick overview of this algorithm for those who are not familiar with it:
+
+1. Select the root node
+2. Select the first child node and repeat until there's no child node to go to
+3. If the current node has unselected siblings: Select the next sibling and go to 2.
+4. If the current node has no unselected siblings: Go back to the node's parent and go to 3.
+5. Output each node when it's first selected
+
+An animation will probably help you grasp the idea:
+
+image::http://upload.wikimedia.org/wikipedia/commons/7/7f/Depth-First-Search.gif[]
+(By Mre (Own work) http://creativecommons.org/licenses/by-sa/3.0[CC BY-SA 3.0], via Wikimedia Commons)
+
+If we apply this algorithm to our own tree, we'd get each node in this order:
+
+----
+1. Motorcycle Racing Categories (:CATEGORIES)
+1.1 Road Racing (:CATEGORY)
+1.1.1 Grand Prix (:SUBCATEGORY)
+1.1.1.1 Moto3 (:CLASS)
+1.1.1.2 Moto2 (:CLASS)
+1.1.1.3 MotoGP (:CLASS)
+1.1.2 Superbike (:SUBCATEGORY)
+1.1.3 Supersport (:SUBCATEGORY)
+1.1.4 Endurance (:SUBCATEGORY)
+1.1.5 Sidecar (:SUBCATEGORY)
+1.1.6 Traditional (:SUBCATEGORY)
+1.2 Motocross (:CATEGORY)
+1.2.1 Supercross (:SUBCATEGORY)
+1.2.2 Supermoto (:SUBCATEGORY)
+----
+
+What's great about this list, is that it is pretty easy to use to build back the tree in memory with a very simple _O(n)_ algorithm using a stack.
+
+=== Applying this algorithm to our graph
+The previous result shows us there is a way to represent our tree with a *single* path. The only thing we have to do is remove all our `:HAS` relationships and instead create a relationship between each consecutive node in the order defined above. +
+The next two queries will do just that. Of course in a real-world application, you would directly create the graph from your tree by traversing it with the depth-first algorithm and creating each node/relationship on the fly.
+
+[source,cypher]
+----
+// Delete :HAS relationships
+MATCH ()-[r:HAS]-()
+DELETE r
+----
+
+[source,cypher]
+----
+// Create pre-ordered depth-first path
+MATCH (root:CATEGORIES)
+
+MATCH (road:CATEGORY {name: '1.1 Road Racing'})
+MATCH (cross:CATEGORY {name: '1.2 Motocross'})
+
+MATCH (gp:SUBCATEGORY {name: '1.1.1 Grand Prix'})
+MATCH (sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
+MATCH (ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
+MATCH (endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
+MATCH (sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
+MATCH (tradi:SUBCATEGORY {name: '1.1.6 Traditional'})
+MATCH (spcross:SUBCATEGORY {name: '1.2.1 Supercross'})
+MATCH (spmoto:SUBCATEGORY {name: '1.2.2 Supermoto'})
+
+MATCH (moto3:CLASS {name: '1.1.1.1 Moto3'})
+MATCH (moto2:CLASS {name: '1.1.1.2 Moto2'})
+MATCH (motogp:CLASS {name: '1.1.1.3 MotoGP'})
+
+WITH *
+
+CREATE (root)-[:NEXT]->(road)-[:NEXT]->(gp)-[:NEXT]->(moto3)
+CREATE (moto3)-[:NEXT]->(moto2)-[:NEXT]->(motogp)-[:NEXT]->(sbk)
+CREATE (sbk)-[:NEXT]->(ssp)-[:NEXT]->(endurance)-[:NEXT]->(sidecar)
+CREATE (sidecar)-[:NEXT]->(tradi)-[:NEXT]->(cross)
+CREATE (cross)-[:NEXT]->(spcross)-[:NEXT]->(spmoto)
 
 RETURN *
 ----
 
 // graph
 
-As you can see, this tree is ordered. If we wanted to display the complete hierarchy of motorcycle racing categories as a plan
-for an article (just as it's done in http://en.wikipedia.org/wiki/Motorcycle_racing#Motorcycle_Grand_Prix[this wikipedia article] the data's been taken from), we'd probably love to query the whole tree and have nothing more to do than display it, confident that items will be in correct order.
+The graph above doesn't look like a tree anymore... but our tree's still here, it's just organized according to the pre-order DFS algorithm:
 
+image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path.png[]
 
