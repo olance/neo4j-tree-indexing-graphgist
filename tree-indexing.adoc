@@ -84,8 +84,9 @@ What if we want to get the whole tree? We can use a variable-length relationship
 
 [source,cypher]
 ----
-MATCH p= (root:CATEGORIES)-[r:HAS*0..]->(child)
-RETURN p,r
+MATCH p = (root:CATEGORIES)-[_rels:HAS*0..]->(child)
+WITH [r in _rels|r.pos] AS positions, [n in nodes(p)|n.name] AS paths
+RETURN paths, positions
 ----
 
 // table
