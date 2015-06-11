@@ -54,7 +54,7 @@ The problem with such a graph is that all the order information is lost: the `:H
 What about storing the position  of each child in its `:HAS` relationship? Something like this:
 
 [source,cypher]
-------
+----
 // Match all :HAS relationships and the child they point to
 MATCH ()-[r:HAS]->(child)
 
@@ -63,7 +63,7 @@ MATCH ()-[r:HAS]->(child)
 // 3. Convert to Int and store in relationship's `pos` property
 SET r.pos = toInt(last(split(head(split(child.name, ' ')), '.')))
 RETURN r
-------
+----
 
 // table
 
@@ -72,21 +72,21 @@ _Note: this query works here because we had the position in each node's label, y
 Now that we have this position property on each relationship, we can effectively get the ordered children of a given node:
 
 [source,cypher]
-------
+----
 MATCH (root {name: '1.1.1 Grand Prix'})-[r:HAS]->(child)
 RETURN child
 ORDER BY r.pos
-------
+----
 
 // table
 
 What if we want to get the whole tree? We can use a variable-length relationships syntax to do that:
 
-[source,cyper]
--------
+[source,cypher]
+----
 MATCH p= (root:CATEGORIES)-[r:HAS*0..]->(child)
 RETURN p,r
--------
+----
 
 // table
 
