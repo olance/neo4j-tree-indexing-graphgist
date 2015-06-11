@@ -27,22 +27,24 @@ CREATE (root:CATEGORIES {name: '1. Motorcycle Racing Categories'})
 
 CREATE (root)-[:HAS]->(road:CATEGORY {name: '1.1 Road Racing'})
 CREATE (road)-[:HAS]->(gp:SUBCATEGORY {name: '1.1.1 Grand Prix'})
-CREATE (gp)-[:HAS]->(moto3:CLASS {name: '1.1.1.1 Moto3'})
 CREATE (gp)-[:HAS]->(moto2:CLASS {name: '1.1.1.2 Moto2'})
+CREATE (gp)-[:HAS]->(moto3:CLASS {name: '1.1.1.1 Moto3'})
 CREATE (gp)-[:HAS]->(motogp:CLASS {name: '1.1.1.3 MotoGP'})
 
-CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
-CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
-CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
-CREATE (road)-[:HAS]->(sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
 CREATE (road)-[:HAS]->(tradi:SUBCATEGORY {name: '1.1.6 Traditional'})
+CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
+CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
+CREATE (road)-[:HAS]->(sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
+CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
 
 CREATE (root)-[:HAS]->(cross:CATEGORY {name: '1.2 Motocross'})
-CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: '1.2.1 Supercross'})
 CREATE (cross)-[:HAS]->(supermoto:SUBCATEGORY {name: '1.2.2 Supermoto'})
+CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: '1.2.1 Supercross'})
 
 RETURN *
 ----
+
+_Note: Nodes have been created in random order to ensure subsequent queries do not return ordered nodes "by accident"_
 
 // graph
 
@@ -58,16 +60,16 @@ MATCH ()-[r:HAS]->(child)
 
 // 1. Split child name by spaces: "1.1.1.3 MotoGP" => ["1.1.1.3", "MotoGP"]
 // 2. Split first item by dots and take last: "1.1.1.3" => "3"
-// 3. Convert to Int and store in relation's `pos` property
+// 3. Convert to Int and store in relationship's `pos` property
 SET r.pos = toInt(last(split(head(split(child.name, ' ')), '.')))
 RETURN r
 ------
 
 // table
 
-_(Note: this query works here because we had the position in each node's label, you would of course need to come up with your own algorithm to build your tree with the correct `pos` property on each relationship)_
+_Note: this query works here because we had the position in each node's label, you would of course need to come up with your own algorithm to build your tree with the correct `pos` property on each relationship_
 
-Now that we have this position property, we can effectively get the ordered children of a given node:
+Now that we have this position property on each relationship, we can effectively get the ordered children of a given node:
 
 [source,cypher]
 ------
@@ -78,3 +80,14 @@ ORDER BY r.pos
 
 // table
 
+What if we want to get the whole tree? We can use a variable-length relationships syntax to do that:
+
+[source,cyper]
+-------
+MATCH p= (root:CATEGORIES)-[r:HAS*0..]->(child)
+RETURN p,r
+-------
+
+// table
+
+The problem is that we do get the complete tree as a result of that kind of query, but it's going to be very difficult to deal with the relationships collections represented by `r` and the paths represented by `p` to return a list of nodes that can be easily used to build back the tree later on (I'm assuming we want to do as less operations as possible on the client side).
