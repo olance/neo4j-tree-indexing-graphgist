@@ -24,24 +24,30 @@ Here's the tree we'll be working with:
 //setup
 [source,cypher]
 ----
-CREATE (root:CATEGORIES {name: 'Motorcycle Racing Categories'})
+CREATE (root:CATEGORIES {name: '1. Motorcycle Racing Categories'})
 
-CREATE (root)-[:HAS]->(road:CATEGORY {name: 'Road Racing'})
-CREATE (road)-[:HAS]->(gp:SUBCATEGORY {name: 'Grand Prix'})
-CREATE (gp)-[:HAS]->(moto3:CLASS {name: 'Moto3'})
-CREATE (gp)-[:HAS]->(moto2:CLASS {name: 'Moto2'})
-CREATE (gp)-[:HAS]->(motogp:CLASS {name: 'MotoGP'})
+CREATE (root)-[:HAS]->(road:CATEGORY {name: '1.1 Road Racing'})
+CREATE (road)-[:HAS]->(gp:SUBCATEGORY {name: '1.1.1 Grand Prix'})
+CREATE (gp)-[:HAS]->(moto3:CLASS {name: '1.1.1.1 Moto3'})
+CREATE (gp)-[:HAS]->(moto2:CLASS {name: '1.1.1.2 Moto2'})
+CREATE (gp)-[:HAS]->(motogp:CLASS {name: '1.1.1.3 MotoGP'})
 
-CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: 'Superbike'})
-CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: 'Supersport'})
-CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: 'Endurance'})
-CREATE (road)-[:HAS]->(tradi:SUBCATEGORY {name: 'Traditional road racing'})
+CREATE (road)-[:HAS]->(sbk:SUBCATEGORY {name: '1.1.2 Superbike'})
+CREATE (road)-[:HAS]->(ssp:SUBCATEGORY {name: '1.1.3 Supersport'})
+CREATE (road)-[:HAS]->(endurance:SUBCATEGORY {name: '1.1.4 Endurance'})
+CREATE (road)-[:HAS]->(sidecar:SUBCATEGORY {name: '1.1.5 Sidecar'})
+CREATE (road)-[:HAS]->(tradi:SUBCATEGORY {name: '1.1.6 Traditional'})
 
-CREATE (root)-[:HAS]->(cross:CATEGORY {name: 'Motocross'})
-CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: 'Supercross'})
-CREATE (cross)-[:HAS]->(supermoto:SUBCATEGORY {name: 'Supermoto'})
+CREATE (root)-[:HAS]->(cross:CATEGORY {name: '1.2 Motocross'})
+CREATE (cross)-[:HAS]->(supercross:SUBCATEGORY {name: '1.2.1 Supercross'})
+CREATE (cross)-[:HAS]->(supermoto:SUBCATEGORY {name: '1.2.2 Supermoto'})
 
 RETURN *
 ----
 
 // graph
+
+As you can see, this tree is ordered. If we wanted to display the complete hierarchy of motorcycle racing categories as a plan
+for an article (just as it's done in http://en.wikipedia.org/wiki/Motorcycle_racing#Motorcycle_Grand_Prix[this wikipedia article] the data's been taken from), we'd probably love to query the whole tree and have nothing more to do than display it, confident that items will be in correct order.
+
+
