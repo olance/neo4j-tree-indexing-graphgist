@@ -219,7 +219,7 @@ Now how would we extract a subtree from this tree? We could just start from the 
 This is however not possible as it is: we have no way to know when to stop!
 
 To fix this, we can add a relationship between a non-leaf node and the last node in its subtree. Thus, from any given node, we could match its last subtree node and walk the DFS path no further than this marker node. +
-Let's do it:
+Let's add `:LAST` relationships between the appropriate nodes of our tree:
 
 [source,cypher]
 ----
@@ -253,6 +253,26 @@ MATCH (n) RETURN n
 Here's a view of the above graph with nodes organized more neatly:
 
 image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/master/images/dfs-path-with-last.png[]
+
+Note that I haven't added a `:LAST` relationship on the tree's root, as there is no sense extracting the tree's "subtree" from the tree's own root. +
+Being able to identify the last node of each subtree, we can now extract them quite easily:
+
+[source,cypher]
+----
+// Get a complete subtree
+MATCH (subroot {name: '1.1 Road Racing'})-[:LAST*0..]->(lastNode)
+MATCH p = (subroot)-[:NEXT*0..]->(lastNode)
+
+WITH nodes(p) AS n UNWIND n AS nodes
+
+RETURN DISTINCT nodes
+----
+
+// table
+
+The query first matches the subroot we're interested in and the last node of its subtree; then, the path from the subroot to this last node is fetched in `p` and we return the unwinded collection of nodes in this path. Both relationships matchers use the `*0..` variable-length qualifier to make sure we return at least the selected subroot when it is a leaf (and hence has no subtree). +
+Because of the "0" in this qualifier, the subroot is matched twice, which is why I used the `DISTINCT` clause to avoid duplication in our result set.
+
 
 
 === Adding depths
