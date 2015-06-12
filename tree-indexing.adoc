@@ -100,7 +100,7 @@ The cause of this problem seems to be that our tree is represented by multiple p
 No matter how hard I tried, I never found a way to get a useful result out of this graph and my Cypher queries were beginning to be way too complicated. Conclusion: the graph structure has too change!
 
 
-== Optimizing our model for our queries
+== The "DFS path" model
 
 === Some theory
 Instead of modeling our data the way we're used to see it, let's look at it the other way round and model it according to the way we want to query it/get it back. +
