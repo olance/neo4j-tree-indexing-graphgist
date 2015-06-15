@@ -331,6 +331,7 @@ image::https://raw.githubusercontent.com/olance/neo4j-tree-indexing-graphgist/ma
 
 With the `:NEXT_SIBLING` relationships present, getting the direct children of a node remains somewhat tricky. One would be tempted to get the `:NEXT` node of the parent node and then all the `:NEXT_SIBLING` nodes. This will work as long as you are not trying to get the children of a leaf. +
 Using this method to get the (non-existing) children of the node "1.1.1.3 MotoGP" would select "1.1.2 Superbike" as the `:NEXT` node and then all its remaining siblings, effectively returning nodes from a higher level than the one we were interested in. +
+
 We have to be more clever than that. Fortunately this is still accessible to the bare mortals we are: we just have to make sure there's no inbound `:NEXT_SIBLING` relationship on the `:NEXT` node we match from our parent node. If there's one, it means the matched node is a sibling of the starting node or a sibling of one of its ancestors. Another way to put this is to say that in a DFS path, a node will never point back at one of its ancestors, so it necessarily points to:
 
 * its first child. No inbound `:NEXT_SIBLING` relationship then (eg. `('1.1')-[:NEXT]->('1.1.1')`).
@@ -397,7 +398,8 @@ RETURN item, length(levels) - 1 AS depth
 ----
 
 This query is an enhancement of our previous query that gets the whole ordered tree, only for each node it computes the shortest path from the tree's root to the node, traversing through `:NEXT_SIBLING` relationships when possible. +
-In this shortest path, we know each traversed level has no inbound `:NEXT_SIBLING` relationship so we count those and subtract `1` as we consider the root to be at depth 0. +
+In this shortest path, we know each traversed level has no inbound `:NEXT_SIBLING` relationship so we count those and subtract `1` as we consider the root to be at depth 0.
+
 Here's the result:
 
 // table
