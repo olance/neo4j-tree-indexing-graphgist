@@ -13,7 +13,7 @@ hierarchy in memory using your client language.
 
 All of this for arbitrary depths of trees and with preservation of children order at each level in the returned data!
 
-Please note that this document is as much a presentation as a personal research on in-graph tree indexing. It will progressively take you through several structures that all have their advantages and inconvenients. I think they could all be used successfully to work with trees, depending on your needs and constraints; I'll try to highlight the pros and cons for each of them.
+Please note that this document is as much a presentation as a personal research on in-graph tree indexing. It shows how I, as a graph/Neo4j neophyte, started from a problem with working on trees and ended up at something that looked good enough for me. If you know better than me, which I'm sure most of you do, please chime in in the comments and let's discuss :)
 
 == Let's start with a tree
 
@@ -367,7 +367,37 @@ RETURN siblings AS children
 
 // table
 
+There's a final problem to this model: it will not work with trees of arbitrary depth. Returning the list of nodes in depth-first search order works only when you're able to distinguish a lower-level node from a higher-level node, so that when iterating on the list of nodes, you can decide whether the current node is a sibling of the previous one, its first child or a sibling of its parent. +
+What we've seen so far works with our example because we have a different node label (`CATEGORIES`, `CATEGORY`, `SUBCATEGORY`, `CLASS`) for each tree level. This situation is probably quite common: books, essays, company organisation charts, product categories, (...) can usually be represented with a limited set of labels.
+
+In other cases though, you might not know the depth of your tree in advance and it might not make sense to have a different label for each level. We then need to add a bit of information to our output: the depth of each node.
+
 === Adding depths
 
-Our example uses a different node label for each tree level. When dealing with trees with unknown depth or with trees that use a single label to mark its different levels (there's not much sense in creating `CATEGORY`, `SUBCATEGORY`, `SUBSUBCATEGORY` (...) labels!), our previous request is not sufficient: in order to be able to build back the tree from the result set, we need to know when we stepped from one leaf to the sibling of its parent (ie. iterating from "1.1.6 Traditional" to "1.2 Motocross" in our example). +
-A solution to this is to add depth information for each returned item. 
+A simple solution to add the depth information to our returned list of nodes, is simply to have it in the properties of each node. There, done!
+
+However in a time-dependent tree, a node could be used at different depths depending on the time reference you use to look at the tree. Having a `depth` property on the node is then impossible. +
+Here is a query that computes the depth of each returned node in the tree:
+
+[source,cypher]
+----
+// Get the whole ordered tree with depths
+MATCH p = (root:CATEGORIES)-[:NEXT*0..]->(item)
+WITH p, item
+ORDER BY length(p)
+
+MATCH (root:CATEGORIES), sp = shortestPath(root-[:NEXT|:NEXT_SIBLING*0..]->item)
+WITH item, filter(node IN nodes(sp) WHERE NOT ()-[:NEXT_SIBLING]->(node)) AS levels
+
+RETURN item, length(levels) - 1 AS depth
+----
+
+This query is an enhancement of our previous query that gets the whole ordered tree, only for each node it computes the shortest path from the tree's root to the node, traversing through `:NEXT_SIBLING` relationships when possible. +
+In this shortest path, we know each traversed level has no inbound `:NEXT_SIBLING` relationship so we count those and subtract `1` as we consider the root to be at depth 0. +
+Here's the result:
+
+// table
+
+Depending on how you handle your time-dependent tree (a subject for another Gist?), you'd had to add conditions to traverse only `:NEXT`/`:NEXT_SIBLING` relationships that make sense at the chosen time reference.
+
+Although I haven't done any benchmark, I suspect this query to be quite costly so it might not work for very large trees. Denormalizing the node's depth in its `:NEXT`/`:NEXT_SIBLING` relationships might be a solution?
