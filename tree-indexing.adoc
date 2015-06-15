@@ -1,4 +1,8 @@
 = In-graph tree indexing
+:neo4j-version: 2.2.2
+:author: Olivier Lance
+:twitter: @olance
+:tags: ordering, containment, tree, depth-first search
 
 Storing tree structures in a graph database makes a lot of sense. However, some trees are easier to play with than others.
 Some constraints will make things much more complicated. Ordered children for instance, or time-dependent hierarchies (a tree 
